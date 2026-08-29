@@ -1,5 +1,7 @@
 # SponsorSkip
 
+[![CI](https://github.com/edde746/sponsorskip/actions/workflows/ci.yml/badge.svg)](https://github.com/edde746/sponsorskip/actions/workflows/ci.yml)
+
 Skips YouTube sponsor segments using a local transcript model. No crowd-sourced
 timestamps, no server, no telemetry. The transcript is fetched by your own
 browser and the model runs on your own GPU.
@@ -156,3 +158,36 @@ and runs. SPA navigation, caching, and ad suppression all confirmed.
 **Not verified:** the seek itself and the skip notice. Chrome for Testing cannot
 decode YouTube's media (no proprietary codecs), so playback never advances and
 pre-roll ads never end. The skip path needs a manual check in a normal Chrome.
+
+## CI and releases
+
+`npm run verify` (`tools/verify-dist.mjs`) is the gate that runs on every push.
+It is browser-free and deterministic, and it asserts the failure modes listed
+under "Things that must not be tidied" — all of which install cleanly and only
+break at runtime. Every check has been negative-tested, which is how a bug in
+the ESM detector itself was caught: the original regex missed
+`import x from "y"`.
+
+Model artifacts are cached on the hash of `models.json`. Since that file pins
+each artifact by SHA-256, the cache key is effectively content-addressed —
+change a weight and the key changes with it.
+
+To cut a release:
+
+```
+# bump the version in BOTH manifest.json and package.json, commit, then:
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The workflow refuses to publish if the tag disagrees with `manifest.json`.
+That check exists because Chrome silently rejects an update whose version is
+not newer, which is painful to diagnose after the fact. It produces two assets:
+
+| asset | contents |
+|---|---|
+| `sponsorskip-<v>-chrome.zip` | ~113 MB, unzip and Load unpacked, model included |
+| `sponsorskip-<v>-source.zip` | ~76 KB, code only, run `npm run fetch-models` |
+
+Chrome Web Store publishing is **not** automated — it needs `CLIENT_ID`,
+`CLIENT_SECRET` and `REFRESH_TOKEN` secrets, and half-configured store
+automation fails in confusing ways. Upload the `chrome` zip manually.
