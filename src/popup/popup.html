@@ -51,6 +51,31 @@
         background: #3ea6ff;
         transition: width 0.2s;
       }
+      input[type="text"],
+      input[type="password"] {
+        width: 100%;
+        margin: 3px 0;
+        padding: 5px;
+        border: 1px solid #3d3d3d;
+        border-radius: 4px;
+        background: #303030;
+        color: #f1f1f1;
+        font: inherit;
+        box-sizing: border-box;
+      }
+      button {
+        margin: 4px 0 2px;
+        padding: 5px 10px;
+        border: 1px solid #3d3d3d;
+        border-radius: 4px;
+        background: #383838;
+        color: #f1f1f1;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #444;
+      }
       #segments {
         margin: 6px 0 0;
         padding: 0;
@@ -109,9 +134,25 @@
 
     <hr />
 
+    <label for="engine"><span>Engine</span></label>
+    <select id="engine">
+      <option value="local">Local model &mdash; private, no key</option>
+      <option value="llm">LLM &mdash; your own endpoint</option>
+    </select>
+
+    <div id="llmPanel" hidden>
+      <input id="llmBaseUrl" type="text" placeholder="https://openrouter.ai/api/v1" />
+      <input id="llmApiKey" type="password" placeholder="API key" autocomplete="off" />
+      <input id="llmModel" type="text" placeholder="z-ai/glm-5.3-flash" />
+      <button id="llmTest">Test connection</button>
+      <div class="muted" id="llmStatus">&nbsp;</div>
+    </div>
+
+    <div id="localPanel">
     <label for="model"><span>Detector</span></label>
     <select id="model"></select>
     <div class="muted" id="modelHint">&nbsp;</div>
+    </div>
     <div id="progress" hidden>
       <div id="progressBar"><div id="progressFill"></div></div>
       <div class="muted" id="progressText">&nbsp;</div>

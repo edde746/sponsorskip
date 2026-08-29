@@ -308,7 +308,10 @@ export class Detector {
         // dragged down by a short adjacent one.
         const lw = last.end - last.start;
         const sw = s.end - s.start;
-        last.score = (last.score * lw + s.score * sw) / Math.max(lw + sw, 1e-6);
+        // Both sides always carry a score on this path; `?? 0` only satisfies
+        // the optional type, which exists for the LLM engine.
+        last.score =
+          ((last.score ?? 0) * lw + (s.score ?? 0) * sw) / Math.max(lw + sw, 1e-6);
         last.end = Math.max(last.end, s.end);
       } else {
         merged.push({ ...s });

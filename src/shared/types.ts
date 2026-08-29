@@ -8,8 +8,14 @@ export interface Segment {
   category: Category;
   start: number;
   end: number;
-  /** Mean ad probability over the span. Used for the UI confidence hint. */
-  score: number;
+  /**
+   * Mean ad probability over the span, when the engine produces one.
+   *
+   * Absent for LLM detections: that engine returns spans with no probability,
+   * and inventing a 1.0 would render as "100% confident" in the UI, which is a
+   * claim nothing measured.
+   */
+  score?: number;
 }
 
 /**
@@ -27,6 +33,8 @@ export type Unavailable =
   | "fetch_failed" // InnerTube said no, or the network did
   | "too_short" // not enough transcript to be worth running
   | "no_webgpu" // device cannot run the model accurately enough to be useful
+  | "llm_unconfigured" // LLM engine selected but no endpoint/key/model set
+  | "llm_failed" // the configured endpoint refused, or returned unparseable output
   | "model_failed"; // session create / inference threw
 
 export interface DetectionResult {

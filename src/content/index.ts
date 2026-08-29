@@ -117,6 +117,8 @@ async function detect(videoId: string): Promise<void> {
       type: "SUBMIT_TRANSCRIPT",
       videoId,
       words: transcript.words,
+      // The LLM prompt states the duration and clamps returned spans to it.
+      duration: transcript.duration ?? currentVideo?.duration ?? 0,
     });
     // The user may have navigated on while inference ran.
     if (videoId !== currentVideoId) return;

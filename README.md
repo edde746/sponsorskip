@@ -150,6 +150,44 @@ Each of these was a real bug, found the hard way.
 - **Content scripts are classic scripts.** They must be IIFEs; only extension
   pages and the worker are modules. `build.mjs` splits the formats explicitly.
 
+## LLM mode
+
+An alternative engine: instead of running a model locally, send the transcript to
+any OpenAI-compatible endpoint you configure with your own URL, key and model.
+Off by default.
+
+The prompt, the 10-second transcript chunking and the JSON recovery are ports of
+the benchmarked research pipeline, selected over 749 calls. Three details earn
+their keep and should not be simplified:
+
+- **10-second lines.** The window is a hard floor on boundary precision, because
+  the model can only cite a line's start time. At 20 s, boundaries quantise by
+  ~10.6 s on average; at 10 s, ~4.6 s.
+- **An explicit short-segment sweep.** Without it, models almost entirely miss
+  1-5 s pre-roll tags and one-sentence outro callbacks.
+- **Balanced-brace JSON recovery.** Replies arrive wrapped in fences, prose and
+  `<think>` blocks; parsing the whole reply fails constantly.
+
+It is an alternative, not an upgrade. On the 93-video hand-labelled set:
+
+| | F1 | precision | recall |
+|---|---|---|---|
+| local (large) | 0.834 | 0.817 | 0.851 |
+| LLM (`glm-5.3-flash`) | 0.821 | **0.923** | **0.740** |
+
+The two fail in opposite directions. The LLM flags less but is right more often
+when it does; the local model finds more and over-flags. Observed directly on one
+test video: the LLM returned 183.5-212.0 s against a true 190.0-222.6 s, ending
+**10 s early** and so leaving ad audio playing. Pick on which error you prefer.
+
+Practical notes: about $0.00085 per video and a few seconds of latency, versus
+~800 ms locally. The API key is kept in `chrome.storage.local`, never
+`storage.sync`, so it is not replicated to every device signed into the browser.
+The endpoint host cannot be a static permission, so it is requested at runtime
+for exactly the origin you enter, on **Test connection**. LLM segments carry no
+confidence value — the model does not emit one, and the UI shows no percentage
+rather than inventing 100%.
+
 ## Decode: hysteresis, not a single threshold
 
 The single most impactful accuracy fix in this project was not the model, it was

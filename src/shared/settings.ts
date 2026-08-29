@@ -35,6 +35,50 @@ export interface Settings {
    * 0.46 s against 1.28 s).
    */
   model: "base" | "large";
+  /**
+   * Detection engine. `local` runs the bundled/downloaded model on WebGPU;
+   * `llm` sends the transcript to an OpenAI-compatible endpoint you configure.
+   *
+   * These fail in opposite directions and neither dominates. On the 93-video
+   * hand-labelled set the local model reaches F1 0.834 with balanced precision
+   * and recall, while an LLM reaches 0.821 at precision 0.923 / recall 0.740 --
+   * it flags less but is right more often when it does.
+   */
+  engine: "local" | "llm";
+}
+
+/**
+ * LLM endpoint settings, kept in storage.local rather than storage.sync.
+ *
+ * An API key must not be synced to Google's servers and pushed to every device
+ * signed into the browser.
+ */
+export interface LlmSettings {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+export const DEFAULT_LLM: LlmSettings = {
+  baseUrl: "https://openrouter.ai/api/v1",
+  apiKey: "",
+  model: "z-ai/glm-5.3-flash",
+};
+
+export async function loadLlm(): Promise<LlmSettings> {
+  const raw = await chrome.storage.local.get("llm");
+  const stored = raw.llm;
+  if (!stored || typeof stored !== "object") return { ...DEFAULT_LLM };
+  const read = (key: keyof LlmSettings) =>
+    key in stored && typeof (stored as Record<string, unknown>)[key] === "string"
+      ? String((stored as Record<string, unknown>)[key])
+      : DEFAULT_LLM[key];
+  return { baseUrl: read("baseUrl"), apiKey: read("apiKey"), model: read("model") };
+}
+
+export async function saveLlm(patch: Partial<LlmSettings>): Promise<void> {
+  const current = await loadLlm();
+  await chrome.storage.local.set({ llm: { ...current, ...patch } });
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -45,6 +89,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showPreviewBar: true,
   edgeSensitivity: "balanced",
   model: "base",
+  engine: "local",
 };
 
 /**
@@ -87,6 +132,7 @@ export async function load(): Promise<Settings> {
         ? raw.edgeSensitivity
         : "balanced",
     model: raw.model === "large" ? "large" : "base",
+    engine: raw.engine === "llm" ? "llm" : "local",
     categories: readCategories(raw.categories),
   };
 }

@@ -58,7 +58,10 @@ export class PreviewBar {
       mark.style.left = `${(start / duration) * 100}%`;
       mark.style.width = `${((end - start) / duration) * 100}%`;
       mark.style.backgroundColor = COLORS[segment.category];
-      mark.title = `${segment.category} (${Math.round(segment.score * 100)}% confident)`;
+      mark.title =
+        segment.score === undefined
+          ? segment.category
+          : `${segment.category} (${Math.round(segment.score * 100)}% confident)`;
       container.appendChild(mark);
     }
   }

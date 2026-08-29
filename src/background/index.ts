@@ -9,6 +9,7 @@
  */
 import * as cache from "./cache";
 import * as settings from "../shared/settings";
+import { detectWithLlm } from "./llm";
 import type { Message, SegmentsResponse } from "../shared/messages";
 import { UNKNOWN_MODEL, type DetectionResult, type Unavailable, type Word } from "../shared/types";
 
@@ -27,6 +28,10 @@ const CACHEABLE_FAILURES: Record<Unavailable, boolean> = {
   // A device does not grow a GPU mid-session.
   no_webgpu: true,
   model_failed: false,
+  // Both resolve the moment the user fixes their settings or the endpoint
+  // recovers, so caching either would strand the video.
+  llm_unconfigured: false,
+  llm_failed: false,
 };
 
 /** Videos currently in inference, so two tabs do not both run the model. */
@@ -77,13 +82,21 @@ async function ensureOffscreen(): Promise<void> {
 async function cacheVersion(): Promise<string> {
   if (modelVersion === UNKNOWN_MODEL) return UNKNOWN_MODEL;
   const config = await settings.load();
-  return `${modelVersion}|${config.model}|lo=` +
+  const engine = config.engine === "llm" ? "llm" : config.model;
+  return `${modelVersion}|${engine}|lo=` +
     settings.EDGE_THRESHOLD[config.edgeSensitivity].toFixed(2);
 }
 
-async function runDetection(videoId: string, words: Word[]): Promise<DetectionResult> {
-  await ensureOffscreen();
+async function runDetection(
+  videoId: string,
+  words: Word[],
+  duration = 0,
+): Promise<DetectionResult> {
   const config = await settings.load();
+
+  if (config.engine === "llm") return runLlm(videoId, words, duration, config);
+
+  await ensureOffscreen();
   const thresholdLo = settings.EDGE_THRESHOLD[config.edgeSensitivity];
 
   const reply: unknown = await chrome.runtime.sendMessage({
@@ -108,6 +121,40 @@ async function runDetection(videoId: string, words: Word[]): Promise<DetectionRe
   await cache.put(stored);
   void cache.evict();
   return result;
+}
+
+async function runLlm(
+  videoId: string,
+  words: Word[],
+  duration: number,
+  config: settings.Settings,
+): Promise<DetectionResult> {
+  const llm = await settings.loadLlm();
+  if (!llm.apiKey || !llm.baseUrl || !llm.model) {
+    return { videoId, segments: [], unavailable: "llm_unconfigured", modelVersion: "llm" };
+  }
+
+  const version = `llm:${llm.model}`;
+  const started = Date.now();
+  const result = await detectWithLlm(words, duration, llm);
+  if (result.error || !result.segments) {
+    console.warn(`[sponsorskip] llm failed: ${result.error}`);
+    return { videoId, segments: [], unavailable: "llm_failed", modelVersion: version };
+  }
+
+  const detection: DetectionResult = {
+    videoId,
+    segments: result.segments,
+    inferenceMs: Date.now() - started,
+    modelVersion: version,
+  };
+  if (version !== modelVersion) {
+    modelVersion = version;
+    void chrome.storage.local.set({ modelVersion });
+  }
+  await cache.put({ ...detection, modelVersion: await cacheVersion() });
+  void cache.evict();
+  return detection;
 }
 
 function respond(result: DetectionResult): SegmentsResponse {
@@ -144,7 +191,9 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
     const existing = inFlight.get(msg.videoId);
     const job =
       existing ??
-      runDetection(msg.videoId, msg.words).finally(() => inFlight.delete(msg.videoId));
+      runDetection(msg.videoId, msg.words, msg.duration).finally(() =>
+        inFlight.delete(msg.videoId),
+      );
     if (!existing) inFlight.set(msg.videoId, job);
     job.then(
       (result) => sendResponse(respond(result)),
@@ -166,6 +215,32 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
     };
     if (CACHEABLE_FAILURES[reason]) void cache.put(result);
     return false;
+  }
+
+  if (msg.type === "TEST_LLM") {
+    // Round-trip a tiny synthetic transcript. Cheaper than a real video and it
+    // exercises the whole path: auth, model name, and JSON recovery.
+    void (async () => {
+      const llm = await settings.loadLlm();
+      const probe = await detectWithLlm(
+        [
+          ["this", 0],
+          ["video", 500],
+          ["is", 1000],
+          ["brought", 1500],
+          ["to", 2000],
+          ["you", 2500],
+          ["by", 3000],
+          ["Acme", 3500],
+          ["dot", 4000],
+          ["com", 4500],
+        ],
+        10,
+        llm,
+      );
+      sendResponse(probe.error ? { ok: false, error: probe.error } : { ok: true });
+    })();
+    return true;
   }
 
   if (msg.type === "MODEL_PROGRESS") return false;

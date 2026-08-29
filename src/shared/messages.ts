@@ -24,6 +24,8 @@ export interface SubmitTranscript {
   type: "SUBMIT_TRANSCRIPT";
   videoId: string;
   words: Word[];
+  /** Video length in seconds; the LLM prompt states it and clamps spans to it. */
+  duration?: number;
 }
 
 /** Content script could not get a transcript; record why, without inference. */
@@ -61,6 +63,11 @@ export interface ForgetVideo {
   videoId: string;
 }
 
+/** Popup asks the worker to validate the configured LLM endpoint. */
+export interface TestLlm {
+  type: "TEST_LLM";
+}
+
 /** Popup wants the current tab's state without triggering work. */
 export interface RequestStatus {
   type: "REQUEST_STATUS";
@@ -74,7 +81,8 @@ export type Message =
   | ReportUnavailable
   | RunDetection
   | ForgetVideo
-  | RequestStatus;
+  | RequestStatus
+  | TestLlm;
 
 export interface SegmentsResponse {
   /**

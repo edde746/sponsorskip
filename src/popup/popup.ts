@@ -24,6 +24,11 @@ const EXPLANATIONS: Record<Unavailable, string> = {
     + "A CPU-only model was tested and missed segment boundaries by about 11 seconds, "
     + "which is worse than not skipping, so it was removed.",
   model_failed: "The model failed to run. Check the extension's service worker log.",
+  llm_unconfigured:
+    "LLM mode is selected but not configured. Fill in the endpoint, key and model below.",
+  llm_failed:
+    "The LLM endpoint failed or returned something unparseable. Check the key, "
+    + "the model name, and the service worker log.",
 };
 
 function timestamp(seconds: number): string {
@@ -184,6 +189,104 @@ function wireProgress(): void {
 }
 
 
+/**
+ * Engine switch plus the LLM endpoint fields.
+ *
+ * The host permission for a user-supplied endpoint cannot be declared statically,
+ * so it is requested at runtime for exactly the origin they entered. Requesting
+ * it on "Test connection" rather than on every keystroke keeps the prompt tied
+ * to a deliberate action.
+ */
+async function wireEngineChoice(config: settings.Settings): Promise<void> {
+  const engine = document.getElementById("engine");
+  const panel = document.getElementById("llmPanel");
+  const local = document.getElementById("localPanel");
+  if (!(engine instanceof HTMLSelectElement) || !panel || !local) return;
+
+  const baseUrl = document.getElementById("llmBaseUrl");
+  const apiKey = document.getElementById("llmApiKey");
+  const model = document.getElementById("llmModel");
+  const test = document.getElementById("llmTest");
+  const status = document.getElementById("llmStatus");
+  if (
+    !(baseUrl instanceof HTMLInputElement) ||
+    !(apiKey instanceof HTMLInputElement) ||
+    !(model instanceof HTMLInputElement) ||
+    !(test instanceof HTMLButtonElement) ||
+    !status
+  ) {
+    return;
+  }
+
+  const llm = await settings.loadLlm();
+  baseUrl.value = llm.baseUrl;
+  apiKey.value = llm.apiKey;
+  model.value = llm.model;
+
+  const applyVisibility = (value: string) => {
+    panel.hidden = value !== "llm";
+    local.hidden = value === "llm";
+  };
+  engine.value = config.engine;
+  applyVisibility(config.engine);
+
+  engine.addEventListener("change", () => {
+    const value = engine.value === "llm" ? "llm" : "local";
+    applyVisibility(value);
+    void settings.save({ engine: value });
+  });
+
+  for (const [input, key] of [
+    [baseUrl, "baseUrl"],
+    [apiKey, "apiKey"],
+    [model, "model"],
+  ] as const) {
+    input.addEventListener("change", () => {
+      void settings.saveLlm({ [key]: input.value.trim() });
+    });
+  }
+
+  test.addEventListener("click", () => {
+    void (async () => {
+      const url = baseUrl.value.trim();
+      const key = apiKey.value.trim();
+      const name = model.value.trim();
+      if (!url || !key || !name) {
+        status.textContent = "Fill in all three fields first.";
+        return;
+      }
+      await settings.saveLlm({ baseUrl: url, apiKey: key, model: name });
+
+      let origin: string;
+      try {
+        origin = `${new URL(url).origin}/*`;
+      } catch {
+        status.textContent = "That endpoint is not a valid URL.";
+        return;
+      }
+
+      status.textContent = "requesting permission\u2026";
+      const granted = await chrome.permissions.request({ origins: [origin] });
+      if (!granted) {
+        status.textContent = `Permission for ${origin} was declined.`;
+        return;
+      }
+
+      status.textContent = "testing\u2026";
+      const reply: unknown = await chrome.runtime.sendMessage({ type: "TEST_LLM" });
+      if (reply && typeof reply === "object" && "ok" in reply && reply.ok) {
+        status.textContent = "endpoint works";
+      } else {
+        const detail =
+          reply && typeof reply === "object" && "error" in reply
+            ? String(reply.error).slice(0, 160)
+            : "unknown error";
+        status.textContent = `failed: ${detail}`;
+      }
+    })();
+  });
+}
+
 async function wireControls(): Promise<void> {
   const config = await settings.load();
 
@@ -213,6 +316,7 @@ async function wireControls(): Promise<void> {
     });
   }
 
+  await wireEngineChoice(config);
   await wireModelChoice(config);
 
   const select = document.getElementById("edgeSensitivity");
