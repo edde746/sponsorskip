@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SponsorSkip",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Skips YouTube sponsor segments using a local transcript model. No crowd-sourced timestamps, no server, no telemetry.",
   "minimum_chrome_version": "116",
   "permissions": [

@@ -50,8 +50,11 @@ async function currentVideoId(): Promise<string | null> {
 
 async function renderStatus(): Promise<void> {
   const status = document.getElementById("status");
-  const model = document.getElementById("model");
-  if (!status || !model) return;
+  // `runInfo`, not `model`: the Detector <select> owns id="model". Two elements
+  // sharing that id made getElementById return this div, so the select silently
+  // never populated.
+  const runInfo = document.getElementById("runInfo");
+  if (!status || !runInfo) return;
 
   const videoId = await currentVideoId();
   if (!videoId) {
@@ -78,7 +81,7 @@ async function renderStatus(): Promise<void> {
     return;
   }
 
-  model.textContent = [
+  runInfo.textContent = [
     result.modelVersion,
     result.backend ? `via ${result.backend.toUpperCase()}` : null,
     result.inferenceMs !== undefined ? `${result.inferenceMs} ms` : null,

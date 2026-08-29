@@ -137,6 +137,34 @@ check("model artifacts match models.json checksums", () => {
   return `${verified} files`;
 });
 
+check("html ids are unique and resolvable", () => {
+  // A duplicate id shipped once: the Detector <select id="model"> collided with
+  // a diagnostics <div id="model">, so getElementById returned the div and the
+  // dropdown silently stayed empty. Cheap to check, invisible to typechecking.
+  let total = 0;
+  for (const page of ["popup.html", "offscreen.html"]) {
+    const html = readFileSync(mustExist(page), "utf8");
+    const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
+    const seen = new Set();
+    for (const id of ids) {
+      if (seen.has(id)) throw new Error(`${page}: duplicate id "${id}"`);
+      seen.add(id);
+    }
+    total += ids.length;
+
+    // Every id the bundled script looks up must exist in the markup, or the
+    // corresponding control is dead on arrival.
+    const script = /src="([^"]+\.js)"/.exec(html)?.[1];
+    if (script && existsSync(join(dist, script))) {
+      const code = readFileSync(join(dist, script), "utf8");
+      for (const m of code.matchAll(/getElementById\("([^"]+)"\)/g)) {
+        if (!seen.has(m[1])) throw new Error(`${page}: script wants missing id "${m[1]}"`);
+      }
+    }
+  }
+  return `${total} ids`;
+});
+
 check("variant manifest is shippable", () => {
   const manifest = JSON.parse(readFileSync(mustExist("variants.json"), "utf8"));
   const ids = Object.keys(manifest.variants);
