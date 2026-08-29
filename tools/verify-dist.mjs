@@ -115,8 +115,6 @@ check("ORT WASM binaries shipped", () => {
   const names = [
     "ort/ort-wasm-simd-threaded.asyncify.wasm",
     "ort/ort-wasm-simd-threaded.asyncify.mjs",
-    "ort/ort-wasm-simd-threaded.wasm",
-    "ort/ort-wasm-simd-threaded.mjs",
   ];
   for (const name of names) mustExist(name);
   return `${names.length} files`;
@@ -137,6 +135,29 @@ check("model artifacts match models.json checksums", () => {
     verified++;
   }
   return `${verified} files`;
+});
+
+check("variant manifest is shippable", () => {
+  const manifest = JSON.parse(readFileSync(mustExist("variants.json"), "utf8"));
+  const ids = Object.keys(manifest.variants);
+  if (!ids.includes("base")) throw new Error("no 'base' variant");
+  for (const [id, v] of Object.entries(manifest.variants)) {
+    if (v.bundled) {
+      // A bundled variant that is not actually in dist would fail only at the
+      // first video, on the user's machine.
+      mustExist(v.model);
+      mustExist(v.meta);
+    } else {
+      // A remote variant without checksums cannot be verified after download,
+      // and a bad graph degrades accuracy silently rather than crashing.
+      for (const key of ["model", "meta"]) {
+        const f = v.files?.[key];
+        if (!f?.sha256 || !f?.bytes) throw new Error(`${id}.${key} lacks bytes/sha256`);
+        if (!/^[0-9a-f]{64}$/.test(f.sha256)) throw new Error(`${id}.${key} bad sha256`);
+      }
+    }
+  }
+  return ids.join(", ");
 });
 
 check("detector metadata invariants", () => {

@@ -7,7 +7,7 @@
  * needs to be able to tell us which one they got.
  */
 import * as settings from "../shared/settings";
-import type { SegmentsResponse } from "../shared/messages";
+import type { Message, SegmentsResponse } from "../shared/messages";
 import type { Category, Unavailable } from "../shared/types";
 
 const COLORS: Record<Category, string> = {
@@ -19,6 +19,10 @@ const EXPLANATIONS: Record<Unavailable, string> = {
   no_captions: "This video has no English captions, so there is no transcript to read.",
   fetch_failed: "Could not load the transcript. YouTube declined the request.",
   too_short: "The transcript is too short to be worth analysing.",
+  no_webgpu:
+    "This device has no WebGPU support, so the model cannot run accurately. "
+    + "A CPU-only model was tested and missed segment boundaries by about 11 seconds, "
+    + "which is worse than not skipping, so it was removed.",
   model_failed: "The model failed to run. Check the extension's service worker log.",
 };
 
@@ -104,6 +108,82 @@ async function renderStatus(): Promise<void> {
   status.append(heading, list);
 }
 
+interface VariantInfo {
+  label: string;
+  note: string;
+  bundled: boolean;
+  params: number;
+  f1: number;
+  start_abs: number;
+  boundary_err: number;
+}
+
+/**
+ * Model picker, described in the numbers that actually differ.
+ *
+ * The options are labelled with measured boundary accuracy rather than just
+ * size, because "724 MB" alone gives no basis for deciding.
+ */
+async function wireModelChoice(config: settings.Settings): Promise<void> {
+  const select = document.getElementById("model");
+  const hint = document.getElementById("modelHint");
+  if (!(select instanceof HTMLSelectElement)) return;
+
+  const manifest: { variants: Record<string, VariantInfo> } = await fetch(
+    chrome.runtime.getURL("variants.json"),
+  ).then((r) => r.json());
+
+  select.replaceChildren();
+  for (const [id, v] of Object.entries(manifest.variants)) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = `${v.label} \u2014 ${v.note}`;
+    select.appendChild(option);
+  }
+  select.value = config.model;
+
+  const describe = (id: string) => {
+    const v = manifest.variants[id];
+    if (!v) return "";
+    return (
+      `${(v.params / 1e6).toFixed(0)}M params \u00b7 F1 ${v.f1.toFixed(3)} \u00b7 ` +
+      `start error ${v.start_abs.toFixed(2)} s \u00b7 boundary ${v.boundary_err.toFixed(2)} s`
+    );
+  };
+  if (hint) hint.textContent = describe(config.model);
+
+  select.addEventListener("change", () => {
+    const value = select.value === "large" ? "large" : "base";
+    if (hint) hint.textContent = describe(value);
+    void settings.save({ model: value });
+  });
+}
+
+/**
+ * Show download progress for a remote variant.
+ *
+ * Registered before anything else asks for a detection so the first bytes are
+ * not missed while the manifest loads.
+ */
+function wireProgress(): void {
+  const wrap = document.getElementById("progress");
+  const fill = document.getElementById("progressFill");
+  const text = document.getElementById("progressText");
+  chrome.runtime.onMessage.addListener((msg: Message) => {
+    if (msg.type !== "MODEL_PROGRESS" || !wrap || !fill || !text) return;
+    const pct = msg.total > 0 ? (msg.loaded / msg.total) * 100 : 0;
+    wrap.hidden = false;
+    fill.style.width = `${pct.toFixed(1)}%`;
+    text.textContent =
+      `downloading ${msg.variant}: ${(msg.loaded / 1e6).toFixed(0)} / ` +
+      `${(msg.total / 1e6).toFixed(0)} MB`;
+    if (msg.loaded >= msg.total && msg.total > 0) {
+      text.textContent = `${msg.variant} downloaded`;
+    }
+  });
+}
+
+
 async function wireControls(): Promise<void> {
   const config = await settings.load();
 
@@ -132,7 +212,29 @@ async function wireControls(): Promise<void> {
       void settings.save(patch(input.checked));
     });
   }
+
+  await wireModelChoice(config);
+
+  const select = document.getElementById("edgeSensitivity");
+  const hint = document.getElementById("edgeHint");
+  if (select instanceof HTMLSelectElement) {
+    select.value = config.edgeSensitivity;
+    const describe = (value: settings.Settings["edgeSensitivity"]) =>
+      `Edges expand while confidence stays above ${settings.EDGE_THRESHOLD[value].toFixed(2)}. ` +
+      (value === "conservative"
+        ? "Starts ~0.3 s after the ad on average."
+        : value === "eager"
+          ? "Starts ~1.4 s before the ad, so more content is cut."
+          : "Starts ~0.3 s before the ad on average.");
+    if (hint) hint.textContent = describe(config.edgeSensitivity);
+    select.addEventListener("change", () => {
+      const value = select.value as settings.Settings["edgeSensitivity"];
+      if (hint) hint.textContent = describe(value);
+      void settings.save({ edgeSensitivity: value });
+    });
+  }
 }
 
+wireProgress();
 void wireControls();
 void renderStatus();

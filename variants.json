@@ -1,0 +1,42 @@
+{
+  "_comment": "Selectable detector models. `base` is bundled so the extension works offline the moment it installs; `large` is downloaded once on demand, verified by SHA-256, and cached. Both share the bundled tokenizer. Metrics are from SponsorBlock crowd labels, tier A, channel-disjoint validation split, held-out half.",
+  "repo": "edde746/sponsorskip-modernbert",
+  "revision": "main",
+  "urlTemplate": "https://huggingface.co/{repo}/resolve/{revision}/{path}",
+  "variants": {
+    "base": {
+      "label": "Base",
+      "note": "bundled, works offline",
+      "bundled": true,
+      "model": "models/detector_fp16.onnx",
+      "meta": "models/detector_meta.json",
+      "params": 124393733,
+      "bytes": 282949814,
+      "f1": 0.8078,
+      "start_abs": 2.981,
+      "boundary_err": 2.621
+    },
+    "large": {
+      "label": "Large",
+      "note": "724 MB download, more accurate boundaries",
+      "bundled": false,
+      "params": 362216453,
+      "bytes": 758892381,
+      "f1": 0.8336,
+      "start_abs": 2.327,
+      "boundary_err": 2.489,
+      "files": {
+        "model": {
+          "path": "large/detector_fp16.onnx",
+          "bytes": 758773973,
+          "sha256": "0ba8298cf63e6c596fbdb0b639efcd1dec57dcafb72002b1a052c5eab193f65c"
+        },
+        "meta": {
+          "path": "large/detector_meta.json",
+          "bytes": 118408,
+          "sha256": "4969973a32ef89dcbeb388a51d6a77af80714bbac610fd0aa0afbbc9a6f00dce"
+        }
+      }
+    }
+  }
+}

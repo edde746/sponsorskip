@@ -8,6 +8,7 @@
  * is exactly what needs to outlive a page: the cache, and one owned document.
  */
 import * as cache from "./cache";
+import * as settings from "../shared/settings";
 import type { Message, SegmentsResponse } from "../shared/messages";
 import { UNKNOWN_MODEL, type DetectionResult, type Unavailable, type Word } from "../shared/types";
 
@@ -23,6 +24,8 @@ const CACHEABLE_FAILURES: Record<Unavailable, boolean> = {
   no_captions: true,
   too_short: true,
   fetch_failed: false,
+  // A device does not grow a GPU mid-session.
+  no_webgpu: true,
   model_failed: false,
 };
 
@@ -64,12 +67,31 @@ async function ensureOffscreen(): Promise<void> {
   }
 }
 
+/**
+ * Cache identity: the model AND the decode setting that produced the segments.
+ *
+ * Without the decode setting in the key, changing edge sensitivity would keep
+ * serving segments decoded under the previous setting, and the change would
+ * appear to do nothing until the cache aged out.
+ */
+async function cacheVersion(): Promise<string> {
+  if (modelVersion === UNKNOWN_MODEL) return UNKNOWN_MODEL;
+  const config = await settings.load();
+  return `${modelVersion}|${config.model}|lo=` +
+    settings.EDGE_THRESHOLD[config.edgeSensitivity].toFixed(2);
+}
+
 async function runDetection(videoId: string, words: Word[]): Promise<DetectionResult> {
   await ensureOffscreen();
+  const config = await settings.load();
+  const thresholdLo = settings.EDGE_THRESHOLD[config.edgeSensitivity];
+
   const reply: unknown = await chrome.runtime.sendMessage({
     type: "RUN_DETECTION",
     videoId,
     words,
+    thresholdLo,
+    variant: config.model,
   });
 
   if (!reply || typeof reply !== "object" || !("result" in reply)) {
@@ -82,7 +104,8 @@ async function runDetection(videoId: string, words: Word[]): Promise<DetectionRe
     modelVersion = result.modelVersion;
     void chrome.storage.local.set({ modelVersion });
   }
-  await cache.put(result);
+  const stored: DetectionResult = { ...result, modelVersion: await cacheVersion() };
+  await cache.put(stored);
   void cache.evict();
   return result;
 }
@@ -95,6 +118,10 @@ function respond(result: DetectionResult): SegmentsResponse {
   };
 }
 
+async function lookup(videoId: string): Promise<DetectionResult | null> {
+  return cache.get(videoId, await cacheVersion());
+}
+
 chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
   if (msg.type === "REQUEST_SEGMENTS") {
     const pending = inFlight.get(msg.videoId);
@@ -102,7 +129,7 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
       pending.then((r) => sendResponse(respond(r)), () => sendResponse({ status: "error" }));
       return true;
     }
-    cache.get(msg.videoId, modelVersion).then(
+    lookup(msg.videoId).then(
       (hit) =>
         sendResponse(
           hit ? respond(hit) : ({ status: "need_transcript" } satisfies SegmentsResponse),
@@ -141,13 +168,15 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
     return false;
   }
 
+  if (msg.type === "MODEL_PROGRESS") return false;
+
   if (msg.type === "FORGET_VIDEO") {
     void cache.remove(msg.videoId);
     return false;
   }
 
   if (msg.type === "REQUEST_STATUS") {
-    cache.get(msg.videoId, modelVersion).then(
+    lookup(msg.videoId).then(
       (row) =>
         sendResponse(
           row

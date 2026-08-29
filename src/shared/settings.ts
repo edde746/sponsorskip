@@ -18,10 +18,23 @@ export interface Settings {
   /** Draw detected spans on the progress bar. */
   showPreviewBar: boolean;
   /**
-   * Decision threshold override. Null means use the model's own tuned value,
-   * which is the calibrated default; raising it trades recall for precision.
+   * How far segment edges are allowed to expand outward from the confident
+   * core, i.e. the low threshold of the hysteresis decode.
+   *
+   * This is a taste knob, not a correctness one, and it is exposed because the
+   * right answer depends on the user. Measured on SponsorBlock crowd labels:
+   *   conservative (0.40): starts +0.32 s late on average, keeps more content
+   *   balanced     (0.30): starts -0.32 s early, the default
+   *   eager        (0.20): starts -1.40 s early, rarely lets any ad through
    */
-  thresholdOverride: number | null;
+  edgeSensitivity: "conservative" | "balanced" | "eager";
+  /**
+   * Which detector to run. `base` is bundled and works offline; `large` is a
+   * 724 MB one-time download with measurably better boundaries (mean absolute
+   * start error 2.33 s against base's 2.98 s, and it overshoots segment ends by
+   * 0.46 s against 1.28 s).
+   */
+  model: "base" | "large";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,7 +43,20 @@ export const DEFAULT_SETTINGS: Settings = {
   categories: { sponsor: true, selfpromo: true },
   noticeDuration: 6,
   showPreviewBar: true,
-  thresholdOverride: null,
+  edgeSensitivity: "balanced",
+  model: "base",
+};
+
+/**
+ * Edge sensitivity -> hysteresis low threshold.
+ *
+ * The high threshold stays fixed at the model's own tuned value: it controls
+ * whether a segment is detected at all, which is not a matter of taste.
+ */
+export const EDGE_THRESHOLD: Record<Settings["edgeSensitivity"], number> = {
+  conservative: 0.4,
+  balanced: 0.3,
+  eager: 0.2,
 };
 
 function readBool(value: unknown, fallback: boolean): boolean {
@@ -56,8 +82,11 @@ export async function load(): Promise<Settings> {
       typeof raw.noticeDuration === "number" && raw.noticeDuration >= 0
         ? raw.noticeDuration
         : DEFAULT_SETTINGS.noticeDuration,
-    thresholdOverride:
-      typeof raw.thresholdOverride === "number" ? raw.thresholdOverride : null,
+    edgeSensitivity:
+      raw.edgeSensitivity === "conservative" || raw.edgeSensitivity === "eager"
+        ? raw.edgeSensitivity
+        : "balanced",
+    model: raw.model === "large" ? "large" : "base",
     categories: readCategories(raw.categories),
   };
 }

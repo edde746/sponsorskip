@@ -24,6 +24,8 @@
 import * as ort from "onnxruntime-web/webgpu";
 import { Tokenizer } from "@huggingface/tokenizers";
 
+import { loadManifest, resolveVariant, type ProgressFn } from "./modelStore";
+
 import type { Category, DetectorMeta, Segment, Word } from "../shared/types";
 
 /** Label ids that mean "this is an ad". Id 0 is O. */
@@ -42,29 +44,23 @@ const MERGE_GAP_S = 2.0;
 /** Captions stamp a word's start; add the tail so a span covers its last word. */
 const WORD_TAIL_S = 0.4;
 
-export type Backend = "webgpu" | "wasm";
+export type Backend = "webgpu";
 
 export interface DetectorInit {
-  /** Directory holding the model variants, metas and tokenizer/. */
-  baseUrl: string;
+  /** Which entry of variants.json to load. */
+  variant: string;
+  /** Forwarded to the popup so a 724 MB download is visible, not a hang. */
+  onProgress?: ProgressFn;
 }
 
-/**
- * Which model each backend gets, and why they are different models.
- *
- * WebGPU gets the 44M-parameter 6-layer truncated ModernBERT at fp16: test
- * F1 0.784, and fp16 is nearly free on a GPU. WASM gets the 19.3M distilled
- * student at int8: test F1 0.714, but 79 ms per window on CPU against roughly
- * 2.5 s for the bigger graph, which is the difference between usable and not.
- *
- * int8 is also not interchangeable across the two. Quantising the big model to
- * int8 measured a 0.082 F1 loss, while it is nearly free for the small
- * distilled one -- so each backend ships the format its model tolerates.
- */
-const VARIANTS: Record<Backend, { model: string; meta: string }> = {
-  webgpu: { model: "detector_fp16.onnx", meta: "detector_meta.json" },
-  wasm: { model: "fallback_int8.onnx", meta: "fallback_meta.json" },
-};
+/** Thrown when the device cannot run the model. Surfaces as `no_webgpu`. */
+export class NoWebGPUError extends Error {
+  constructor(cause?: unknown) {
+    super("WebGPU is unavailable");
+    this.name = "NoWebGPUError";
+    this.cause = cause;
+  }
+}
 
 export class Detector {
   private session!: ort.InferenceSession;
@@ -72,50 +68,63 @@ export class Detector {
   private meta!: DetectorMeta;
   /** original vocab id -> pruned row index. Dense for O(1) remap. */
   private vocabMap!: Int32Array;
-  backend!: Backend;
+  backend: Backend = "webgpu";
   modelVersion = "unknown";
 
-  async init({ baseUrl }: DetectorInit): Promise<void> {
+  /**
+   * There is deliberately no CPU fallback.
+   *
+   * A 19.3M distilled student was shipped as one, and measuring it against
+   * SponsorBlock crowd labels showed a mean absolute start error of ~11 s. A
+   * skip eleven seconds off target is worse than no skip: it cuts content and
+   * still plays the ad. Hysteresis raised its F1 from 0.603 to 0.657 but left
+   * the error at ~11 s, so it was removed rather than shipped quietly.
+   *
+   * Running the accurate model on WASM is the honest way to support these
+   * devices, but at roughly 2.5 s per window it needs its own measured int8
+   * export before it can be offered.
+   */
+  async init({ variant, onProgress }: DetectorInit): Promise<void> {
+    if (typeof navigator === "undefined" || !("gpu" in navigator)) {
+      throw new NoWebGPUError();
+    }
+
     // ORT fetches its WASM binaries at runtime; point it at our copies rather
     // than the default CDN path, which an extension CSP would refuse anyway.
     ort.env.wasm.wasmPaths = chrome.runtime.getURL("ort/");
 
+    // The tokenizer is always the bundled one: every variant is ModernBERT and
+    // shares it, so there is nothing to download and nothing to keep in sync.
+    const base = chrome.runtime.getURL("models");
     const [tokenizerJson, tokenizerConfig] = await Promise.all([
-      fetch(`${baseUrl}/tokenizer/tokenizer.json`).then((r) => r.json()),
-      fetch(`${baseUrl}/tokenizer/tokenizer_config.json`).then((r) => r.json()),
+      fetch(`${base}/tokenizer/tokenizer.json`).then((r) => r.json()),
+      fetch(`${base}/tokenizer/tokenizer_config.json`).then((r) => r.json()),
     ]);
     this.tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
 
-    const preferred: Backend =
-      typeof navigator !== "undefined" && "gpu" in navigator ? "webgpu" : "wasm";
-    try {
-      await this.loadVariant(baseUrl, preferred);
-    } catch (err) {
-      // A driver can advertise WebGPU and still refuse the graph. Retrying on
-      // WASM with the small model beats failing the whole feature.
-      if (preferred === "wasm") throw err;
-      console.warn("[sponsorskip] webgpu unavailable, falling back to wasm", err);
-      await this.loadVariant(baseUrl, "wasm");
-    }
-  }
+    const manifest = await loadManifest();
+    const resolved = await resolveVariant(manifest, variant,
+                                          onProgress ?? (() => undefined));
+    this.meta = resolved.meta as DetectorMeta;
 
-  private async loadVariant(baseUrl: string, backend: Backend): Promise<void> {
-    const variant = VARIANTS[backend];
-    this.meta = await fetch(`${baseUrl}/${variant.meta}`).then((r) => r.json());
-
-    // `keep[i] = originalId` -> invert into originalId -> i. The two variants
-    // have different pruned vocabularies, so this must follow the meta load.
     this.vocabMap = new Int32Array(50368);
     for (let i = 0; i < this.meta.keep.length; i++) {
       this.vocabMap[this.meta.keep[i]] = i;
     }
 
-    this.session = await ort.InferenceSession.create(`${baseUrl}/${variant.model}`, {
-      executionProviders: [backend],
-      graphOptimizationLevel: "all",
-    });
-    this.backend = backend;
-    this.modelVersion = variant.model.replace(/\.onnx$/, "");
+    try {
+      // From bytes, not a URL: the remote variant lives in the Cache API and
+      // never becomes a fetchable extension path.
+      this.session = await ort.InferenceSession.create(
+        new Uint8Array(resolved.model), {
+          executionProviders: ["webgpu"],
+          graphOptimizationLevel: "all",
+        });
+    } catch (err) {
+      // A driver can advertise WebGPU and still refuse the graph.
+      throw new NoWebGPUError(err);
+    }
+    this.modelVersion = resolved.version;
   }
 
   /**
@@ -212,20 +221,26 @@ export class Detector {
   }
 
   /**
-   * Turn per-word probabilities into merged segments.
+   * Turn per-word probabilities into merged segments, using hysteresis.
    *
-   * Mirrors `decode`: threshold the summed ad probability, name each run by the
-   * majority ad class inside it, then merge same-brand runs separated by less
-   * than `MERGE_GAP_S` and drop anything shorter than `MIN_LEN_S`.
+   * A confident "core" above `thHi` establishes that a segment exists; its
+   * edges are then walked outward while probability stays above `thLo`. This is
+   * the fix for skips firing late. With a single threshold the two jobs fight:
+   * raising it improves F1 and pushes starts later, because the run cannot begin
+   * until the model is already certain — several words into the sponsor read.
+   *
+   * Measured on SponsorBlock crowd labels, held-out half, full-depth base:
+   *   single 0.60      F1 0.771, start +0.86 s
+   *   hysteresis .7/.3 F1 0.802, start -0.32 s
+   * Better on both axes at once, so there is no tradeoff being made here.
    */
-  private decode(probs: Float32Array, words: Word[], threshold: number): Segment[] {
+  private decode(probs: Float32Array, words: Word[], thHi: number, thLo: number): Segment[] {
     const nLabels = this.meta.labels.length;
-    const runs: Array<[number, number]> = [];
-    let cur: [number, number] | null = null;
+    const n = words.length;
 
-    const pAd = new Float32Array(words.length);
-    const argmax = new Int32Array(words.length);
-    for (let w = 0; w < words.length; w++) {
+    const pAd = new Float32Array(n);
+    const argmax = new Int32Array(n);
+    for (let w = 0; w < n; w++) {
       let p = 0;
       for (const c of AD_IDS) p += probs[w * nLabels + c];
       pAd[w] = p;
@@ -242,14 +257,24 @@ export class Detector {
       argmax[w] = best;
     }
 
-    for (let w = 0; w < words.length; w++) {
-      if (pAd[w] >= threshold) cur = cur === null ? [w, w] : [cur[0], w];
-      else if (cur !== null) {
-        runs.push(cur);
-        cur = null;
+    const runs: Array<[number, number]> = [];
+    for (let i = 0; i < n; ) {
+      if (pAd[i] < thHi) {
+        i++;
+        continue;
       }
+      // Extend the core while still confident.
+      let j = i;
+      while (j + 1 < n && pAd[j + 1] >= thHi) j++;
+      // Then relax outward to find the true edges.
+      let a = i;
+      while (a - 1 >= 0 && pAd[a - 1] >= thLo) a--;
+      let b = j;
+      while (b + 1 < n && pAd[b + 1] >= thLo) b++;
+      runs.push([a, b]);
+      // Resume past the expanded end, so one core cannot be claimed twice.
+      i = b + 1;
     }
-    if (cur !== null) runs.push(cur);
 
     const segs: Segment[] = runs.map(([a, b]) => {
       const tally = new Map<number, number>();
@@ -292,10 +317,19 @@ export class Detector {
     return merged.filter((s) => s.end - s.start >= MIN_LEN_S);
   }
 
-  /** Full pass: words in, segments out. */
-  async detect(words: Word[], threshold = this.meta.threshold): Promise<Segment[]> {
+  /**
+   * Full pass: words in, segments out.
+   *
+   * Falls back to a single threshold for artifacts exported before the
+   * hysteresis pair existed, so an older model file still behaves as it did.
+   */
+  async detect(words: Word[], thresholdLo?: number): Promise<Segment[]> {
     if (words.length === 0) return [];
+    const thHi = this.meta.threshold_hi ?? this.meta.threshold;
+    // Clamped below thHi: a low threshold above the high one would make the
+    // expansion step a no-op and silently disable hysteresis.
+    const thLo = Math.min(thresholdLo ?? this.meta.threshold_lo ?? this.meta.threshold, thHi);
     const probs = await this.wordProbs(words);
-    return this.decode(probs, words, threshold);
+    return this.decode(probs, words, thHi, thLo);
   }
 }

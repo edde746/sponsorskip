@@ -5,23 +5,13 @@
   "files": [
     {
       "path": "detector_fp16.onnx",
-      "bytes": 122072865,
-      "sha256": "d0e31653c90ef2f378df714554cc3ae72c49532e7ea9f1577d22d70f9bf696b3"
+      "bytes": 282949814,
+      "sha256": "e0e36c1408a854363a700d8babb3edd186a9aa655cb40964562cb0b24ccfff29"
     },
     {
       "path": "detector_meta.json",
-      "bytes": 118364,
-      "sha256": "3c5318a9e0c8d23832f28db7c809d51118a9cae6b501e302012139a1496f8462"
-    },
-    {
-      "path": "fallback_int8.onnx",
-      "bytes": 20019458,
-      "sha256": "2ce808a941198810d8252b0d9866f6ddb55ee2f89c2f6926a54b2433096cafb6"
-    },
-    {
-      "path": "fallback_meta.json",
-      "bytes": 97826,
-      "sha256": "4635b242804d41b956e2a7a6c8036f9c4927d6178f5c33e37d66babb74b8c0d7"
+      "bytes": 118408,
+      "sha256": "932f7cc2636b5f7d7af4d50fbcbd81a6061e8d9b700f593ddbbf43fa98cad095"
     },
     {
       "path": "tokenizer/tokenizer.json",
@@ -30,8 +20,8 @@
     },
     {
       "path": "tokenizer/tokenizer_config.json",
-      "bytes": 379,
-      "sha256": "5926e6ec4294f80294bd98d9176defa9fbae7f140525d06a1da987488e74a973"
+      "bytes": 380,
+      "sha256": "fb54f027372062b2ca52282efb04d178a8b57167a00cd8f4e816515823a2c016"
     },
     {
       "path": "tokenizer/special_tokens_map.json",

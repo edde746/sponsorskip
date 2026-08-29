@@ -26,6 +26,7 @@ export type Unavailable =
   | "no_captions" // video has no English caption track
   | "fetch_failed" // InnerTube said no, or the network did
   | "too_short" // not enough transcript to be worth running
+  | "no_webgpu" // device cannot run the model accurately enough to be useful
   | "model_failed"; // session create / inference threw
 
 export interface DetectionResult {
@@ -59,7 +60,23 @@ export interface DetectorMeta {
   labels: string[];
   max_len: number;
   stride_frac: number;
+  /**
+   * Detection threshold. A word must exceed this for a segment to exist at all.
+   * Kept for older artifacts that predate the hysteresis pair.
+   */
   threshold: number;
+  /**
+   * Hysteresis pair. `threshold_hi` decides *whether* a segment is there;
+   * `threshold_lo` decides *where its edges are* by expanding outward from the
+   * confident core.
+   *
+   * One threshold cannot do both jobs, and trying cost real accuracy: measured
+   * on crowd labels, raising a single threshold bought F1 and pushed segment
+   * starts later, so the shipped model began sponsor skips +2.4 s late.
+   * Splitting them gave better F1 *and* 2.7 s less lateness simultaneously.
+   */
+  threshold_hi?: number;
+  threshold_lo?: number;
   cls_token_id: number;
   sep_token_id: number;
   pad_token_id: number;

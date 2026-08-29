@@ -28,6 +28,29 @@
         background: #303030;
         line-height: 1.45;
       }
+      select {
+        width: 100%;
+        margin: 4px 0 2px;
+        padding: 5px;
+        border: 1px solid #3d3d3d;
+        border-radius: 4px;
+        background: #303030;
+        color: #f1f1f1;
+        font: inherit;
+      }
+      #progressBar {
+        height: 4px;
+        margin: 6px 0 3px;
+        border-radius: 2px;
+        background: #3d3d3d;
+        overflow: hidden;
+      }
+      #progressFill {
+        height: 100%;
+        width: 0;
+        background: #3ea6ff;
+        transition: width 0.2s;
+      }
       #segments {
         margin: 6px 0 0;
         padding: 0;
@@ -83,6 +106,26 @@
     <label><input type="checkbox" id="cat-sponsor" /><span>Sponsor</span></label>
     <label><input type="checkbox" id="cat-selfpromo" /><span>Self-promotion</span></label>
 
+
+    <hr />
+
+    <label for="model"><span>Detector</span></label>
+    <select id="model"></select>
+    <div class="muted" id="modelHint">&nbsp;</div>
+    <div id="progress" hidden>
+      <div id="progressBar"><div id="progressFill"></div></div>
+      <div class="muted" id="progressText">&nbsp;</div>
+    </div>
+
+    <hr />
+
+    <label for="edgeSensitivity"><span>Skip edges</span></label>
+    <select id="edgeSensitivity">
+      <option value="conservative">Conservative &mdash; keep more content</option>
+      <option value="balanced">Balanced</option>
+      <option value="eager">Eager &mdash; never hear an ad</option>
+    </select>
+    <div class="muted" id="edgeHint">&nbsp;</div>
     <hr />
     <div class="muted">
       Runs entirely on your machine. Transcripts are fetched by your browser and

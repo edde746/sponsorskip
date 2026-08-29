@@ -81,22 +81,42 @@ and contains nothing but the fetch.
 
 ### Models
 
-Each backend gets the model whose format it can afford. See
-`src/offscreen/detector.ts`.
+WebGPU only. Two selectable detectors; see `variants.json` and
+`src/offscreen/modelStore.ts`.
 
-| backend | model | size | test F1 | speed |
-|---|---|---|---|---|
-| WebGPU | 6-layer truncated ModernBERT, pruned vocab, fp16 | 122 MB | **0.788** | 845 ms / 19-min video |
-| WASM | 19.3M distilled student, int8 | 20 MB | 0.714 | 79 ms / window |
+| | Base | Large |
+|---|---|---|
+| params | 124.4M | 362.2M |
+| download | bundled (270 MB) | 724 MB, once |
+| F1 | 0.808 | **0.834** |
+| mean absolute start error | 2.98 s | **2.33 s** |
+| overshoot at segment end | +1.28 s | **+0.46 s** |
+| boundary error | 2.62 s | **2.49 s** |
 
-int8 is not interchangeable: quantising the big model to int8 costs 0.082 F1,
-while it is nearly free for the small distilled one. Vocabulary pruning dropped
-the embedding table from 50,368 to 17,536 rows (62% of the model's parameters)
-and is bit-identical — max abs logit delta 0, argmax parity 100%.
+Base is bundled so the extension works offline the moment it installs. Large is
+fetched on demand from HuggingFace, verified against a SHA-256 recorded at build
+time, and kept in the Cache API — so it downloads once, with progress shown in
+the popup. A truncated or substituted graph would not crash, it would quietly
+predict worse segments, which is why the checksum is enforced rather than
+assumed.
 
-`detector_fp32.onnx` is not shipped. It exists as the parity reference for the
-fp16 export, and a 6-layer model on CPU is ~30x slower than the student it would
-be replacing.
+Large is better on every measured axis, and most visibly at segment ends: on one
+test video it stops at 224.3 s against a true end of 222.6 s, where base runs to
+231.7 s. That is 1.7 s of content lost instead of 9.1 s.
+
+Measured against **SponsorBlock crowd labels** (tier A, channel-disjoint
+validation split, held-out half), not the hand-labelled set. That distinction
+matters: hand labels start segments +1.25 s later than crowd labels on average,
+and tuning a threshold against them is what made an earlier build skip late.
+
+There is no CPU fallback. A 19.3M distilled student shipped as one, and measuring
+it properly showed ~11 s mean absolute start error -- it only stopped being late
+by being symmetrically wrong. A skip eleven seconds off target cuts content and
+still plays the ad, so it was removed rather than shipped quietly. Devices
+without WebGPU get an explicit `no_webgpu` explanation.
+
+`detector_fp32.onnx` is not shipped; it is the parity reference for the fp16
+export.
 
 ## Things that must not be "tidied"
 
@@ -130,6 +150,42 @@ Each of these was a real bug, found the hard way.
 - **Content scripts are classic scripts.** They must be IIFEs; only extension
   pages and the worker are modules. `build.mjs` splits the formats explicitly.
 
+## Decode: hysteresis, not a single threshold
+
+The single most impactful accuracy fix in this project was not the model, it was
+the decoder. A high threshold decides *whether* a segment exists; a low one
+decides *where its edges are*, by expanding outward from the confident core.
+
+With one threshold the two jobs fight. Raising it improves F1 and pushes starts
+later, because a run cannot begin until the model is already certain -- several
+words into the sponsor read. Measured on crowd labels, held-out half:
+
+| decode | F1 | segment start |
+|---|---|---|
+| single 0.60 | 0.771 | **+0.86 s (late)** |
+| hysteresis 0.70 / 0.30 | **0.802** | **-0.32 s** |
+
+Better on both axes at once, so nothing is being traded. Verified faithful: with
+equal thresholds it reproduces the old decoder exactly, which is the check that
+caught an off-by-one in the expansion loop.
+
+`threshold_lo` is exposed in the popup as **Skip edges**, because the right value
+is a matter of taste rather than correctness -- whether you would rather hear a
+second of ad or lose a second of content:
+
+| setting | `threshold_lo` | mean start |
+|---|---|---|
+| conservative | 0.40 | +0.08 s |
+| balanced (default) | 0.30 | -0.58 s |
+| eager | 0.20 | -1.05 s |
+
+Changing it invalidates cached segments, since the cache key includes the decode
+setting; otherwise the change would appear to do nothing until the cache aged out.
+
+Per-video variance is much larger than these averages. On one test video the
+model over-extends by ~8 s at both ends regardless of threshold, because its
+probability profile is broad rather than sharp.
+
 ## Skip scheduling
 
 `src/content/skipper.ts` re-derives SponsorBlock's approach rather than copying
@@ -143,17 +199,18 @@ navigation cannot seek the wrong video.
 ## Verification status
 
 Verified in Chrome 146 with the extension loaded, against hand-labelled ground
-truth:
+truth (`threshold_lo` 0.30, the default):
 
-| video | detected | ground truth | confidence |
-|---|---|---|---|
-| `WSLW1A6Q5a4` | 35.0 – 99.7 s | 36.0 – 96.7 s | 0.97 |
-| `I9zqGeH8EIs` | 186.6 – 227.7 s | 190.0 – 222.6 s | 0.91 |
+| video | detected | ground truth |
+|---|---|---|
+| `WSLW1A6Q5a4` | 35.0 - 98.3 s | 36.0 - 96.7 s |
+| `I9zqGeH8EIs` | 183.9 - 231.7 s | 190.0 - 222.6 s |
 
-Both within the model's 4.43 s mean boundary error. The second row was read back
-out of the rendered progress-bar geometry, so it also confirms the bar draws
-against the real timeline. `backend: "webgpu"` confirmed — the fp16 graph loads
-and runs. SPA navigation, caching, and ad suppression all confirmed.
+The second is the over-extending outlier described above; the first is typical.
+`backend: "webgpu"` confirmed -- the fp16 graph loads and runs. SPA navigation,
+caching, decode-aware cache invalidation, and ad suppression all confirmed. The
+preview bar was read back out of rendered geometry, so it also confirms the bar
+draws against the real timeline rather than an ad's.
 
 **Not verified:** the seek itself and the skip notice. Chrome for Testing cannot
 decode YouTube's media (no proprietary codecs), so playback never advances and

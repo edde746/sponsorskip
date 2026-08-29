@@ -50,12 +50,7 @@ const MODEL_SRC = join(root, "models");
  * export, and at 210 MB it would more than double the package for a CPU path
  * that the 19.3M int8 student serves roughly 30x faster anyway.
  */
-const MODEL_FILES = [
-  "detector_fp16.onnx",
-  "detector_meta.json",
-  "fallback_int8.onnx",
-  "fallback_meta.json",
-];
+const MODEL_FILES = ["detector_fp16.onnx", "detector_meta.json"];
 const TOKENIZER_FILES = ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"];
 
 async function copyStatic() {
@@ -63,6 +58,9 @@ async function copyStatic() {
 
   // Flat copies whose destination name differs from their source path.
   await cp(join(root, "manifest.json"), join(dist, "manifest.json"));
+  // Runtime model registry: which variants exist, which are bundled, and the
+  // checksums the offscreen document verifies downloads against.
+  await cp(join(root, "variants.json"), join(dist, "variants.json"));
   await cp(join(root, "src/content/ui/content.css"), join(dist, "content.css"));
   for (const file of ["src/popup/popup.html", "src/offscreen/offscreen.html"]) {
     await cp(join(root, file), join(dist, file.split("/").pop()));
@@ -74,18 +72,18 @@ async function copyStatic() {
     await cp(join(root, file), join(dist, file));
   }
 
-  // ORT loads its WASM binary at runtime, so the needed builds must be real
-  // files in the package. `onnxruntime-web/webgpu` resolves to the asyncify
-  // build; the plain SIMD-threaded build serves the CPU execution provider.
-  // Copying the whole dist directory instead would add ~60 MB of jspi, jsep
-  // and training builds this extension never loads.
+  // ORT loads its WASM binary at runtime, so the needed build must be a real
+  // file in the package. `onnxruntime-web/webgpu` resolves to the asyncify
+  // build, and that binary also contains the CPU kernels the WebGPU provider
+  // falls back to for individual ops -- so it is the only one required now that
+  // there is no CPU execution provider. Copying the whole dist directory would
+  // add ~75 MB of jspi, jsep, plain-SIMD and training builds that never load.
   const ortDist = join(root, "node_modules", "onnxruntime-web", "dist");
   const ortOut = join(dist, "ort");
   await mkdir(ortOut, { recursive: true });
-  for (const base of ["ort-wasm-simd-threaded.asyncify", "ort-wasm-simd-threaded"]) {
-    for (const ext of [".wasm", ".mjs"]) {
-      await cp(join(ortDist, base + ext), join(ortOut, base + ext));
-    }
+  for (const ext of [".wasm", ".mjs"]) {
+    const name = `ort-wasm-simd-threaded.asyncify${ext}`;
+    await cp(join(ortDist, name), join(ortOut, name));
   }
 
   // Hard failure, not a warning: an extension built without weights installs

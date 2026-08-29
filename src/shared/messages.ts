@@ -38,6 +38,21 @@ export interface RunDetection {
   type: "RUN_DETECTION";
   videoId: string;
   words: Word[];
+  /**
+   * Hysteresis low threshold from user settings. The offscreen document holds
+   * the model but not the preferences, so the worker resolves this.
+   */
+  thresholdLo?: number;
+  /** Which entry of variants.json to run. */
+  variant?: string;
+}
+
+/** Offscreen -> popup, while a remote model variant downloads. */
+export interface ModelProgress {
+  type: "MODEL_PROGRESS";
+  variant: string;
+  loaded: number;
+  total: number;
 }
 
 /** User pressed "never skip this" -- drop the cached row. */
@@ -53,6 +68,7 @@ export interface RequestStatus {
 }
 
 export type Message =
+  | ModelProgress
   | RequestSegments
   | SubmitTranscript
   | ReportUnavailable
