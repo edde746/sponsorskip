@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs: a 146 MB model fetch is not worth spending twice on a
+# commit that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Keyed on models.json, which pins every artifact by SHA-256, so the key
+      # is effectively content-addressed: change a weight, change the key.
+      - name: Cache model artifacts
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-${{ hashFiles('models.json') }}
+
+      - name: Fetch models
+        run: npm run fetch-models
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # Structural gate: manifest completeness, classic-vs-module content
+      # scripts, ORT binaries, model checksums, detector invariants.
+      - name: Verify dist
+        run: npm run verify
+
+      # Skips with a clear message when the reference corpus is absent, which it
+      # always is here: it is not published with this repository.
+      - name: Tokenizer parity
+        run: npm run check-tokenizer
+
+      - name: Report package size
+        run: |
+          echo "### Package" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          du -sh dist >> "$GITHUB_STEP_SUMMARY"
+          du -sh dist/models dist/ort >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

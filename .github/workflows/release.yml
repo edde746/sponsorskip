@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve version
+        id: version
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # A tag that disagrees with manifest.json ships a package whose reported
+      # version is wrong. Chrome then refuses the update as "not newer", which is
+      # silent and extremely annoying to diagnose after the fact.
+      - name: Check version consistency
+        run: |
+          VERSION='${{ steps.version.outputs.version }}'
+          MANIFEST=$(node -p "require('./manifest.json').version")
+          PACKAGE=$(node -p "require('./package.json').version")
+          echo "tag=$VERSION manifest=$MANIFEST package=$PACKAGE"
+          FAILED=0
+          [ "$VERSION" = "$MANIFEST" ] || { echo "::error::manifest.json says $MANIFEST, tag says $VERSION"; FAILED=1; }
+          [ "$VERSION" = "$PACKAGE" ] || { echo "::error::package.json says $PACKAGE, tag says $VERSION"; FAILED=1; }
+          exit $FAILED
+
+      - run: npm ci
+
+      - name: Cache model artifacts
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-${{ hashFiles('models.json') }}
+
+      - name: Fetch models
+        run: npm run fetch-models
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify dist
+        run: npm run verify
+
+      - name: Package
+        id: package
+        run: |
+          VERSION='${{ steps.version.outputs.version }}'
+
+          # Loadable package: unzip and "Load unpacked". Contains the weights, so
+          # it also carries NOTICE.md explaining the two licences.
+          ( cd dist && zip -qr "../sponsorskip-$VERSION-chrome.zip" . )
+
+          # Code only, no weights. For anyone who would rather fetch the model
+          # themselves, or keep the GPL code and NC weights strictly separate.
+          git archive --format=zip --prefix="sponsorskip-$VERSION/" \
+            -o "sponsorskip-$VERSION-source.zip" HEAD
+
+          ls -lh sponsorskip-*.zip
+          {
+            echo "chrome_size=$(du -h "sponsorskip-$VERSION-chrome.zip" | cut -f1)"
+            echo "source_size=$(du -h "sponsorskip-$VERSION-source.zip" | cut -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        run: |
+          VERSION='${{ steps.version.outputs.version }}'
+          MODEL_REPO=$(node -p "require('./models.json').repo")
+          cat > RELEASE_NOTES.md <<EOF
+          Skips YouTube sponsor segments using a local transcript model. No
+          crowd-sourced timestamps, no server, no telemetry.
+
+          ## Install
+
+          Download \`sponsorskip-$VERSION-chrome.zip\` (${{ steps.package.outputs.chrome_size }}), unzip it,
+          then in Chrome go to \`chrome://extensions\` → enable Developer mode →
+          **Load unpacked** → select the unzipped folder.
+
+          Requires Chrome 116+ (offscreen documents and WebGPU). On a machine
+          without WebGPU it falls back to a smaller model on WASM automatically.
+
+          ## Assets
+
+          | asset | size | contents |
+          |---|---|---|
+          | \`sponsorskip-$VERSION-chrome.zip\` | ${{ steps.package.outputs.chrome_size }} | ready to load, model included |
+          | \`sponsorskip-$VERSION-source.zip\` | ${{ steps.package.outputs.source_size }} | code only, run \`npm run fetch-models\` |
+
+          ## Licences
+
+          Code is **GPL-3.0-or-later**. Model weights are **CC BY-NC-SA 4.0 —
+          non-commercial**, inherited from the SponsorBlock database they were
+          trained on. The \`chrome\` zip contains both; see \`NOTICE.md\` inside it.
+
+          Weights: https://huggingface.co/$MODEL_REPO
+
+          ## Accuracy
+
+          0.788 F1 on 93 hand-labelled videos / 177 segments, mean boundary error
+          4.5 s. Weakest on segments under 10 seconds (39/58 recall). The test set
+          is small and shares channels with training data — see the model card for
+          the full caveats, including the memorisation analysis.
+          EOF
+          cat RELEASE_NOTES.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION='${{ steps.version.outputs.version }}'
+          gh release create '${{ steps.version.outputs.tag }}' \
+            --title "SponsorSkip $VERSION" \
+            --notes-file RELEASE_NOTES.md \
+            "sponsorskip-$VERSION-chrome.zip" \
+            "sponsorskip-$VERSION-source.zip"

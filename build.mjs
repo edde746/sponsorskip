@@ -61,11 +61,17 @@ const TOKENIZER_FILES = ["tokenizer.json", "tokenizer_config.json", "special_tok
 async function copyStatic() {
   await mkdir(dist, { recursive: true });
 
-  for (const file of ["manifest.json", "src/content/ui/content.css"]) {
-    await cp(join(root, file), join(dist, file.endsWith(".css") ? "content.css" : file));
-  }
+  // Flat copies whose destination name differs from their source path.
+  await cp(join(root, "manifest.json"), join(dist, "manifest.json"));
+  await cp(join(root, "src/content/ui/content.css"), join(dist, "content.css"));
   for (const file of ["src/popup/popup.html", "src/offscreen/offscreen.html"]) {
     await cp(join(root, file), join(dist, file.split("/").pop()));
+  }
+
+  // A built package mixes GPL-3.0 code with CC BY-NC-SA weights, so the notice
+  // travels with the artifact rather than only living in the repository.
+  for (const file of ["LICENSE", "NOTICE.md"]) {
+    await cp(join(root, file), join(dist, file));
   }
 
   // ORT loads its WASM binary at runtime, so the needed builds must be real

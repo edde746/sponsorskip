@@ -14,6 +14,7 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
+    "verify": "node tools/verify-dist.mjs",
     "check-tokenizer": "node tools/tokenizer-parity.mjs"
   },
   "dependencies": {
