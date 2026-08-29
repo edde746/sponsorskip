@@ -92,8 +92,10 @@ jobs:
           VERSION='${{ steps.version.outputs.version }}'
           MODEL_REPO=$(node -p "require('./models.json').repo")
           cat > RELEASE_NOTES.md <<EOF
-          Skips YouTube sponsor segments using a local transcript model. No
-          crowd-sourced timestamps, no server, no telemetry.
+          Skips YouTube sponsor segments by reading the transcript. No
+          crowd-sourced timestamps, no server, no telemetry. Segments are
+          predicted from the video's own captions, so it works on videos nobody
+          has ever labelled.
 
           ## Install
 
@@ -101,14 +103,36 @@ jobs:
           then in Chrome go to \`chrome://extensions\` → enable Developer mode →
           **Load unpacked** → select the unzipped folder.
 
-          Requires Chrome 116+ (offscreen documents and WebGPU). On a machine
-          without WebGPU it falls back to a smaller model on WASM automatically.
+          Requires Chrome 116+ (offscreen documents and WebGPU). There is no CPU
+          fallback: the small model measured for one was ~11 s off at segment
+          boundaries, which is worse than not skipping, so devices without WebGPU
+          are told so explicitly instead.
+
+          ## Engines
+
+          | engine | delivery | F1 | mean abs start error |
+          |---|---|---|---|
+          | Base (default) | bundled | 0.808 | 2.98 s |
+          | Large | 724 MB, downloaded once | **0.834** | **2.33 s** |
+          | LLM | your own endpoint | 0.821 | — |
+
+          Base and Large run locally on your GPU. Large is more accurate, most
+          visibly at segment ends, and is fetched from HuggingFace on first use
+          with a SHA-256 check.
+
+          LLM mode sends the transcript to any OpenAI-compatible endpoint you
+          configure with your own URL, key and model. It is an alternative rather
+          than an upgrade: precision 0.923 against recall 0.740, so it flags less
+          but is right more often when it does. Costs about \$0.00085 per video.
+
+          **Skip edges** tunes how far segment edges expand — whether you would
+          rather hear a second of ad or lose a second of content.
 
           ## Assets
 
           | asset | size | contents |
           |---|---|---|
-          | \`sponsorskip-$VERSION-chrome.zip\` | ${{ steps.package.outputs.chrome_size }} | ready to load, model included |
+          | \`sponsorskip-$VERSION-chrome.zip\` | ${{ steps.package.outputs.chrome_size }} | ready to load, base model included |
           | \`sponsorskip-$VERSION-source.zip\` | ${{ steps.package.outputs.source_size }} | code only, run \`npm run fetch-models\` |
 
           ## Licences
@@ -119,12 +143,20 @@ jobs:
 
           Weights: https://huggingface.co/$MODEL_REPO
 
-          ## Accuracy
+          ## Accuracy caveats
 
-          0.788 F1 on 93 hand-labelled videos / 177 segments, mean boundary error
-          4.5 s. Weakest on segments under 10 seconds (39/58 recall). The test set
-          is small and shares channels with training data — see the model card for
-          the full caveats, including the memorisation analysis.
+          Numbers above are measured against SponsorBlock crowd labels on a
+          channel-disjoint validation split, held-out half (~200 videos / ~530
+          segments). Read them as tiers, not a ranking: the Base/Large F1 gap is
+          borderline at this sample size, though the boundary metrics are
+          consistently better for Large.
+
+          Per-video variance is much larger than these averages. On one test video
+          the local model over-extends ~6 s early and ~9 s late regardless of
+          settings, because that segment's probability profile is broad. Short
+          segments remain the weak point, and it is English-ASR only.
+
+          See the model card for the full caveats.
           EOF
           cat RELEASE_NOTES.md
 
