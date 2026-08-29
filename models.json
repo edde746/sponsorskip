@@ -1,0 +1,42 @@
+{
+  "_comment": "Model artifacts are hosted on HuggingFace, not in this repository. The fp16 detector is 116.4 MiB and GitHub hard-blocks files over 100 MiB, so it cannot live in git at all. Keeping the weights separate also keeps the licences separate: this code is GPL-3.0, the weights are CC BY-NC-SA 4.0. Run `npm run fetch-models` to populate ./models.",
+  "repo": "edde746/sponsorskip-modernbert",
+  "revision": "main",
+  "files": [
+    {
+      "path": "detector_fp16.onnx",
+      "bytes": 122072865,
+      "sha256": "d0e31653c90ef2f378df714554cc3ae72c49532e7ea9f1577d22d70f9bf696b3"
+    },
+    {
+      "path": "detector_meta.json",
+      "bytes": 118364,
+      "sha256": "3c5318a9e0c8d23832f28db7c809d51118a9cae6b501e302012139a1496f8462"
+    },
+    {
+      "path": "fallback_int8.onnx",
+      "bytes": 20019458,
+      "sha256": "2ce808a941198810d8252b0d9866f6ddb55ee2f89c2f6926a54b2433096cafb6"
+    },
+    {
+      "path": "fallback_meta.json",
+      "bytes": 97826,
+      "sha256": "4635b242804d41b956e2a7a6c8036f9c4927d6178f5c33e37d66babb74b8c0d7"
+    },
+    {
+      "path": "tokenizer/tokenizer.json",
+      "bytes": 3583228,
+      "sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30"
+    },
+    {
+      "path": "tokenizer/tokenizer_config.json",
+      "bytes": 379,
+      "sha256": "5926e6ec4294f80294bd98d9176defa9fbae7f140525d06a1da987488e74a973"
+    },
+    {
+      "path": "tokenizer/special_tokens_map.json",
+      "bytes": 119,
+      "sha256": "bd6c46d516f20b0681e5b64d15c98487be518793a0a2ac23e78c88c81db88f3b"
+    }
+  ]
+}

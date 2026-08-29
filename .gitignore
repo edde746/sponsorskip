@@ -1,0 +1,13 @@
+node_modules/
+dist/
+
+# Model weights are hosted on HuggingFace, not here: the fp16 detector is
+# 116.4 MiB and GitHub hard-blocks files over 100 MiB. `npm run fetch-models`
+# populates this directory. See models.json.
+models/
+
+# Tokenizer parity reference, generated from the research corpus.
+tok_ref.json
+
+.DS_Store
+*.log

@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "SponsorSkip",
+  "version": "0.1.0",
+  "description": "Skips YouTube sponsor segments using a local transcript model. No crowd-sourced timestamps, no server, no telemetry.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "unlimitedStorage", "offscreen"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      "js": ["page.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "world": "ISOLATED",
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SponsorSkip"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

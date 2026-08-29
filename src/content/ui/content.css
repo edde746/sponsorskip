@@ -1,0 +1,96 @@
+/* Injected into YouTube. Every selector is namespaced to avoid colliding with
+   YouTube's own styles or with SponsorBlock if both are installed. */
+
+.sponsorskip-preview-bar {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Above the played/buffered fills, below the scrubber handle. */
+  z-index: 20;
+}
+
+.sponsorskip-preview-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 1px;
+  opacity: 0.75;
+}
+
+.sponsorskip-notice {
+  position: absolute;
+  bottom: 70px;
+  left: 12px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(28, 28, 28, 0.92);
+  color: #fff;
+  font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.sponsorskip-notice-label {
+  font-weight: 500;
+}
+
+.sponsorskip-notice-countdown {
+  min-width: 1.5em;
+  text-align: right;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.sponsorskip-notice-button {
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  background: transparent;
+  color: #3ea6ff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sponsorskip-notice-button:hover {
+  background: rgba(62, 166, 255, 0.12);
+}
+
+.sponsorskip-notice-close {
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.sponsorskip-notice-close:hover {
+  opacity: 1;
+}
+
+.sponsorskip-skip-button {
+  height: 100%;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.9;
+}
+
+.sponsorskip-skip-button:hover {
+  opacity: 1;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+}
+
+.sponsorskip-skip-button[hidden] {
+  display: none;
+}

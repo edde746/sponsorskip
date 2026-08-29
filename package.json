@@ -1,0 +1,28 @@
+{
+  "name": "sponsorskip",
+  "version": "0.1.0",
+  "description": "Skip YouTube sponsor segments using a local transcript model. No crowd-sourced timestamps, no server.",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/edde746/sponsorskip.git"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch-models": "node scripts/fetch-models.mjs",
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "check-tokenizer": "node tools/tokenizer-parity.mjs"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "0.1.3",
+    "onnxruntime-web": "1.29.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.1.31",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}
